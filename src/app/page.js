@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from 'recharts';
-import { ChevronDown, AlertCircle, CheckCircle } from 'lucide-react';
+import { AlertCircle, CheckCircle } from 'lucide-react';
 
 // --- MOCK DATA (for initial render and fallback) ---
 const createMockOrderbook = (midPrice, levels = 15) => {
@@ -87,6 +87,10 @@ const useOrderbookWebSocket = (venue, symbol, isVisible) => {
 
         const config = venueConfig[venue];
         if (!config) return;
+
+        // Reset orderbook state when venue changes
+        setOrderbook({ bids: [], asks: [] });
+        setIsConnected(false);
 
         ws.current = new WebSocket(config.url);
         let pingInterval;
@@ -173,19 +177,25 @@ const VenueTabs = ({ venues, activeVenue, setActiveVenue, connectionStatus }) =>
 
 const OrderBook = ({ bids, asks, simulatedOrder }) => {
     const maxCumulative = useMemo(() => {
-        const bidTotal = bids.slice(0, 15).reduce((acc, curr) => acc + parseFloat(curr[1]), 0);
-        const askTotal = asks.slice(0, 15).reduce((acc, curr) => acc + parseFloat(curr[1]), 0);
-        return Math.max(bidTotal, askTotal);
+        if (!bids || !asks || bids.length === 0 || asks.length === 0) return 1;
+        const bidTotal = bids.slice(0, 15).reduce((acc, curr) => acc + (parseFloat(curr[1]) || 0), 0);
+        const askTotal = asks.slice(0, 15).reduce((acc, curr) => acc + (parseFloat(curr[1]) || 0), 0);
+        return Math.max(bidTotal, askTotal, 1); // Ensure it's never 0
     }, [bids, asks]);
     
-    const formatPrice = (price) => parseFloat(price).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    const formatSize = (size) => parseFloat(size).toFixed(4);
+    const formatPrice = (priceStr) => {
+        const price = parseFloat(priceStr);
+        return isNaN(price) ? '...' : price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    };
+    const formatSize = (sizeStr) => {
+        const size = parseFloat(sizeStr);
+        return isNaN(size) ? '...' : size.toFixed(4);
+    };
 
     const OrderRow = ({ price, size, cumulative, type, isSimulated }) => {
         const percentage = (cumulative / maxCumulative) * 100;
         const bgColor = type === 'bid' ? 'bg-green-500/20' : 'bg-red-500/20';
         const textColor = type === 'bid' ? 'text-green-400' : 'text-red-400';
-        const barAlign = type === 'bid' ? 'right-0' : 'left-0';
 
         return (
             <tr className={`relative text-xs hover:bg-gray-700/50 ${isSimulated ? 'ring-2 ring-yellow-400' : ''}`}>
@@ -203,8 +213,9 @@ const OrderBook = ({ bids, asks, simulatedOrder }) => {
     let cumulativeAsk = 0;
 
     const findSimulatedIndex = (levels, order) => {
-        if (!order) return -1;
+        if (!order || !levels) return -1;
         const price = parseFloat(order.price);
+        if (isNaN(price)) return -1;
         if (order.side === 'Buy') { // Looking for asks
             return levels.findIndex(ask => price >= parseFloat(ask[0]));
         } else { // Looking for bids
@@ -229,9 +240,9 @@ const OrderBook = ({ bids, asks, simulatedOrder }) => {
                             </tr>
                         </thead>
                         <tbody>
-                            {bids.slice(0, 15).map(([price, size], index) => {
-                                cumulativeBid += parseFloat(size);
-                                return <OrderRow key={index} price={price} size={size} cumulative={cumulativeBid} type="bid" isSimulated={simulatedOrder?.side === 'Sell' && index === simulatedBidIndex} />;
+                            {bids && bids.slice(0, 15).map(([price, size], index) => {
+                                cumulativeBid += parseFloat(size) || 0;
+                                return <OrderRow key={`bid-${index}`} price={price} size={size} cumulative={cumulativeBid} type="bid" isSimulated={simulatedOrder?.side === 'Sell' && index === simulatedBidIndex} />;
                             })}
                         </tbody>
                     </table>
@@ -246,9 +257,9 @@ const OrderBook = ({ bids, asks, simulatedOrder }) => {
                             </tr>
                         </thead>
                         <tbody>
-                            {asks.slice(0, 15).map(([price, size], index) => {
-                                cumulativeAsk += parseFloat(size);
-                                return <OrderRow key={index} price={price} size={size} cumulative={cumulativeAsk} type="ask" isSimulated={simulatedOrder?.side === 'Buy' && index === simulatedAskIndex} />;
+                            {asks && asks.slice(0, 15).map(([price, size], index) => {
+                                cumulativeAsk += parseFloat(size) || 0;
+                                return <OrderRow key={`ask-${index}`} price={price} size={size} cumulative={cumulativeAsk} type="ask" isSimulated={simulatedOrder?.side === 'Buy' && index === simulatedAskIndex} />;
                             })}
                         </tbody>
                     </table>
@@ -266,6 +277,7 @@ const DepthChart = ({ bids, asks }) => {
     }, []);
 
     const chartData = useMemo(() => {
+        if (!bids || !asks) return { bids: [], asks: [] };
         // Process bids: filter, parse, and calculate cumulative size
         let cumulativeBidSize = 0;
         const bidData = bids.slice(0, 50).reverse().reduce((acc, [priceStr, sizeStr]) => {
@@ -296,8 +308,12 @@ const DepthChart = ({ bids, asks }) => {
     }, [bids, asks]);
 
     // Render placeholder if there's no valid data to display
-    if (chartData.bids.length === 0 || chartData.asks.length === 0) {
-        return <div className="text-center text-gray-500 p-8">Waiting for data to render depth chart...</div>;
+    if (!isClient || chartData.bids.length === 0 || chartData.asks.length === 0) {
+        return (
+            <div className="bg-gray-900 rounded-lg p-4 mt-4 h-64 flex items-center justify-center">
+                <p className="text-gray-500">Waiting for data to render depth chart...</p>
+            </div>
+        );
     }
 
     const priceDomain = [chartData.bids[0].price, chartData.asks[chartData.asks.length - 1].price];
@@ -305,41 +321,37 @@ const DepthChart = ({ bids, asks }) => {
     return (
         <div className="bg-gray-900 rounded-lg p-4 mt-4 h-64">
              <h3 className="text-lg font-semibold text-white mb-2">Market Depth</h3>
-            {isClient ? (
-                <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart margin={{ top: 5, right: 20, left: 20, bottom: 20 }}>
-                        <defs>
-                            <linearGradient id="colorBid" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="5%" stopColor="#10B981" stopOpacity={0.4}/>
-                                <stop offset="95%" stopColor="#10B981" stopOpacity={0}/>
-                            </linearGradient>
-                            <linearGradient id="colorAsk" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="5%" stopColor="#EF4444" stopOpacity={0.4}/>
-                                <stop offset="95%" stopColor="#EF4444" stopOpacity={0}/>
-                            </linearGradient>
-                        </defs>
-                        <XAxis dataKey="price" type="number" domain={priceDomain} tick={{ fill: '#9CA3AF', fontSize: 12 }} tickFormatter={(val) => val.toLocaleString()} allowDataOverflow />
-                        <YAxis orientation="right" tick={{ fill: '#9CA3AF', fontSize: 12 }} tickFormatter={(val) => val.toFixed(2)} />
-                        <Tooltip
-                            contentStyle={{ backgroundColor: '#1F2937', border: '1px solid #4B5563', borderRadius: '0.5rem' }}
-                            labelStyle={{ color: '#F9FAFB' }}
-                            formatter={(value, name) => [`${value.toFixed(4)} BTC`, name]}
-                        />
-                        <Legend wrapperStyle={{ color: '#9CA3AF', paddingTop: '10px' }} />
-                        <Area type="step" dataKey="size" data={chartData.bids} stroke="#10B981" fill="url(#colorBid)" name="Bids" />
-                        <Area type="step" dataKey="size" data={chartData.asks} stroke="#EF4444" fill="url(#colorAsk)" name="Asks" />
-                    </AreaChart>
-                </ResponsiveContainer>
-            ) : (
-                <div className="flex items-center justify-center h-full text-gray-500">Loading Chart...</div>
-            )}
+            <ResponsiveContainer width="100%" height="100%">
+                <AreaChart margin={{ top: 5, right: 20, left: 20, bottom: 20 }}>
+                    <defs>
+                        <linearGradient id="colorBid" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#10B981" stopOpacity={0.4}/>
+                            <stop offset="95%" stopColor="#10B981" stopOpacity={0}/>
+                        </linearGradient>
+                        <linearGradient id="colorAsk" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#EF4444" stopOpacity={0.4}/>
+                            <stop offset="95%" stopColor="#EF4444" stopOpacity={0}/>
+                        </linearGradient>
+                    </defs>
+                    <XAxis dataKey="price" type="number" domain={priceDomain} tick={{ fill: '#9CA3AF', fontSize: 12 }} tickFormatter={(val) => val.toLocaleString()} allowDataOverflow />
+                    <YAxis orientation="right" tick={{ fill: '#9CA3AF', fontSize: 12 }} tickFormatter={(val) => val.toFixed(2)} />
+                    <Tooltip
+                        contentStyle={{ backgroundColor: '#1F2937', border: '1px solid #4B5563', borderRadius: '0.5rem' }}
+                        labelStyle={{ color: '#F9FAFB' }}
+                        formatter={(value, name) => [`${value.toFixed(4)} BTC`, name]}
+                    />
+                    <Legend wrapperStyle={{ color: '#9CA3AF', paddingTop: '10px' }} />
+                    <Area type="step" dataKey="size" data={chartData.bids} stroke="#10B981" fill="url(#colorBid)" name="Bids" />
+                    <Area type="step" dataKey="size" data={chartData.asks} stroke="#EF4444" fill="url(#colorAsk)" name="Asks" />
+                </AreaChart>
+            </ResponsiveContainer>
         </div>
     );
 };
 
 const OrderForm = ({ onSubmit }) => {
     const [formData, setFormData] = useState({
-        symbol: 'BTC-USD-SWAP',
+        symbol: 'BTCUSDT',
         orderType: 'Limit',
         side: 'Buy',
         price: '',
@@ -419,7 +431,10 @@ const OrderForm = ({ onSubmit }) => {
             
             {error && <p className="text-sm text-red-500 flex items-center"><AlertCircle className="w-4 h-4 mr-2"/>{error}</p>}
 
-            <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md transition-colors">
+            <button 
+                type="submit" 
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md transition-colors"
+            >
                 Simulate Order Placement
             </button>
         </form>
@@ -447,7 +462,7 @@ const MetricsDisplay = ({ metrics }) => {
                 </div>
                 <div className="flex justify-between">
                     <span className="text-gray-400">Slippage:</span>
-                    <span className="text-white font-mono">{slippage.toFixed(4)}%</span>
+                    <span className="text-white font-mono">{slippage.toFixed(2)}%</span>
                 </div>
                 <div className="flex justify-between">
                     <span className="text-gray-400">Market Impact (Price):</span>
@@ -460,7 +475,7 @@ const MetricsDisplay = ({ metrics }) => {
                     <span>{warning}</span>
                 </div>
             )}
-            {!warning && (
+            {!warning && fillPercent > 0 && (
                  <div className="p-3 bg-green-900/50 border border-green-700 rounded-md text-green-300 text-sm flex items-start">
                     <CheckCircle className="w-5 h-5 mr-2 flex-shrink-0 mt-0.5" />
                     <span>Order size has minimal expected market impact.</span>
@@ -475,7 +490,7 @@ const MetricsDisplay = ({ metrics }) => {
 export default function Page() {
     const venues = ['OKX', 'Bybit', 'Deribit'];
     const [activeVenue, setActiveVenue] = useState('OKX');
-    const [symbol, setSymbol] = useState('BTC-USD-SWAP');
+    const [symbol, setSymbol] = useState('BTCUSDT');
     const [simulatedOrder, setSimulatedOrder] = useState(null);
     const [simulationMetrics, setSimulationMetrics] = useState(null);
     const simulationTimeout = useRef(null);
@@ -500,42 +515,56 @@ export default function Page() {
         const qty = parseFloat(quantity);
         
         let filledQty = 0;
-        let totalCost = 0;
         let slippage = 0;
         let impact = 0;
         let warning = '';
+        let lastFillPrice = 0;
 
         const bookSide = side === 'Buy' ? book.asks : book.bids;
-        const entryPrice = parseFloat(bookSide[0]?.[0] || '0');
+        if (bookSide.length === 0) {
+            return { fillPercent: 0, slippage: 0, impact: 0, warning: 'No liquidity available.' };
+        }
+        
+        const entryPrice = parseFloat(bookSide[0][0]);
+        if (isNaN(entryPrice)) {
+             return { fillPercent: 0, slippage: 0, impact: 0, warning: 'Waiting for valid market price...' };
+        }
+        lastFillPrice = entryPrice;
         
         if (orderType === 'Market') {
             let qtyToFill = qty;
-            for (const [levelPrice, levelQty] of bookSide) {
-                const p = parseFloat(levelPrice);
-                const q = parseFloat(levelQty);
-                const fillable = Math.min(qtyToFill, q);
+            for (const [levelPriceStr, levelQtyStr] of bookSide) {
+                const levelPrice = parseFloat(levelPriceStr);
+                const levelQty = parseFloat(levelQtyStr);
+                if (isNaN(levelPrice) || isNaN(levelQty)) continue;
+
+                const fillable = Math.min(qtyToFill, levelQty);
                 
                 filledQty += fillable;
-                totalCost += fillable * p;
+                lastFillPrice = levelPrice; // Update last fill price to the current level
                 qtyToFill -= fillable;
 
                 if (qtyToFill <= 0) break;
             }
-            const avgFillPrice = totalCost / filledQty;
-            if (entryPrice > 0 && filledQty > 0) {
-                slippage = Math.abs((avgFillPrice - entryPrice) / entryPrice) * 100;
+            // Calculate slippage based on the WORST price (lastFillPrice) vs the BEST price (entryPrice)
+            if (entryPrice > 0) {
+                slippage = (Math.abs(lastFillPrice - entryPrice) / entryPrice) * 100;
             }
-            impact = Math.abs(avgFillPrice - entryPrice);
+            impact = Math.abs(lastFillPrice - entryPrice);
+
         } else { // Limit Order
             const limitPrice = parseFloat(price);
-            let qtyToFill = qty;
-            for (const [levelPrice, levelQty] of bookSide) {
-                const p = parseFloat(levelPrice);
-                const q = parseFloat(levelQty);
+            if (isNaN(limitPrice)) return { fillPercent: 0, slippage: 0, impact: 0, warning: 'Invalid limit price.' };
 
-                const canFill = side === 'Buy' ? p <= limitPrice : p >= limitPrice;
+            let qtyToFill = qty;
+            for (const [levelPriceStr, levelQtyStr] of bookSide) {
+                const levelPrice = parseFloat(levelPriceStr);
+                const levelQty = parseFloat(levelQtyStr);
+                if (isNaN(levelPrice) || isNaN(levelQty)) continue;
+
+                const canFill = side === 'Buy' ? levelPrice <= limitPrice : levelPrice >= limitPrice;
                 if (canFill) {
-                    const fillable = Math.min(qtyToFill, q);
+                    const fillable = Math.min(qtyToFill, levelQty);
                     filledQty += fillable;
                     qtyToFill -= fillable;
                 }
@@ -543,7 +572,12 @@ export default function Page() {
             }
         }
         
-        const fillPercent = qty > 0 ? (filledQty / qty) * 100 : 100;
+        let fillPercent = 0;
+        if (qty > 0 && filledQty > 0) {
+          const calculatedFillPercent = (filledQty / qty) * 100;
+          fillPercent = Math.min(calculatedFillPercent, 100);
+        }
+
 
         if (slippage > 0.5) {
             warning = `High slippage warning! Your order may cause a price impact of approximately $${impact.toFixed(2)}.`;
@@ -557,10 +591,22 @@ export default function Page() {
             clearTimeout(simulationTimeout.current);
         }
         
-        setSymbol(formData.symbol);
+        // Use the symbol from the form for the current active venue
+        const symbolMap = {
+            OKX: 'BTC-USD-SWAP',
+            Bybit: 'BTCUSDT',
+            Deribit: 'BTC-PERPETUAL'
+        };
+        setSymbol(symbolMap[activeVenue] || formData.symbol);
         
         const executeSimulation = () => {
             const book = currentOrderbook;
+            if (!book || book.bids.length === 0 || book.asks.length === 0) {
+                // Do not run simulation if book is not ready
+                console.log("Order book not ready, skipping simulation.");
+                return;
+            }
+
             let orderPrice = formData.price;
             if (formData.orderType === 'Market') {
                  if (formData.side === 'Buy' && book.asks.length > 0) {
@@ -582,7 +628,7 @@ export default function Page() {
         } else {
             executeSimulation();
         }
-    }, [currentOrderbook, calculateMetrics]);
+    }, [currentOrderbook, calculateMetrics, activeVenue]);
 
     return (
         <div className="bg-gray-950 text-white min-h-screen font-sans p-4 lg:p-6">
