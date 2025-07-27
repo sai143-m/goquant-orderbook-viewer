@@ -1,36 +1,107 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://github.com/vercel/next.js/tree/canary/packages/create-next-app).
+GoQuant - Real-Time Orderbook Viewer & Simulation Tool
+This project is a submission for the GoQuant front-end engineering assignment. It is a Next.js application that provides a real-time, multi-venue order book viewer for several cryptocurrency exchanges and includes an order simulation tool to help traders visualize market impact.
 
-## Getting Started
+✨ Features
+✅ Multi-Venue Orderbook Display:
 
-First, run the development server:
+Displays real-time order books from three venues: OKX, Bybit, and Deribit.
 
-```bash
+Shows 15+ levels of best bids and best asks for each venue.
+
+Seamlessly switch between venues with a clear connection status indicator.
+
+✅ Real-Time Data Integration:
+
+Utilizes WebSocket connections for live, low-latency data updates from all three exchanges.
+
+Efficiently manages WebSocket lifecycle, connecting only to the active venue to conserve resources.
+
+✅ Order Simulation Form:
+
+An intuitive form to simulate Market and Limit orders.
+
+Select side (Buy/Sell), input price and quantity, and simulate trade timing delays.
+
+Includes robust form validation for all inputs.
+
+✅ Order Placement Visualization:
+
+Visually highlights the simulated order's exact position within the live order book using a distinct indicator.
+
+Helps users immediately understand where their order would sit in relation to current market prices.
+
+✅ Order Impact Metrics:
+
+Calculates and displays critical order impact metrics, including:
+
+Estimated Fill Percentage
+
+Slippage Estimation
+
+Potential Price Impact
+
+Displays a clear warning for orders that are likely to cause significant slippage.
+
+✅ Responsive Design:
+
+The application is fully responsive and optimized for both desktop and mobile use cases, using a modern Tailwind CSS layout.
+
+⭐ Bonus Feature: Market Depth Visualization:
+
+Includes a market depth chart that visually represents the cumulative buy and sell pressure, providing an at-a-glance understanding of market liquidity.
+
+💻 Technologies Used
+Framework: Next.js (with App Router)
+
+Language: JavaScript (ES6+)
+
+UI Library: React
+
+Styling: Tailwind CSS
+
+Charting: Recharts
+
+Icons: Lucide React
+
+🚀 Setup and Running Locally
+To get this project running on your local machine, please follow these steps.
+
+Prerequisites:
+
+Node.js (v18.x or later)
+
+npm or yarn
+
+1. Clone the Repository
+
+git clone https://github.com/sai143-m/goquant-orderbook-viewer.git
+cd goquant-orderbook-viewer
+
+2. Install Dependencies
+Install the required project dependencies using npm:
+
+npm install
+
+3. Run the Development Server
+Start the Next.js development server:
+
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+4. Open the Application
+Open your browser and navigate to http://localhost:3000. You should see the application running.
 
-You can start editing the page by modifying `app/page.js`. The page auto-updates as you edit the file.
+📚 API Documentation & Considerations
+This application connects to the public WebSocket APIs of the following exchanges. No API keys are required.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+OKX API: https://www.okx.com/docs-v5/
 
-## Learn More
+Bybit API: https://bybit-exchange.github.io/docs/v5/intro
 
-To learn more about Next.js, take a look at the following resources:
+Deribit API: https://docs.deribit.com/
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Rate Limiting: The application is designed to be a good citizen regarding API usage. It only maintains one active WebSocket connection at a time (for the currently viewed venue) and properly closes connections when they are no longer needed. It also responds to exchange-specific keep-alive messages (pings/pongs) to maintain stable connections.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+📝 Assumptions Made
+Symbols: The application defaults to the most common perpetual swap or spot symbols for BTC/USD on each exchange (BTC-USD-SWAP, BTCUSDT, BTC-PERPETUAL). The form allows for these to be changed, but the initial connection uses these defaults.
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Error Handling: The primary error handling focuses on WebSocket connection status (success, failure, disconnection), which is visually indicated in the UI. For a production environment, more granular error handling for data parsing and API messages would be implemented.
