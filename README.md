@@ -1,7 +1,7 @@
 GoQuant - Real-Time Orderbook Viewer & Simulation Tool
 This project is a submission for the GoQuant front-end engineering assignment. It is a Next.js application that provides a real-time, multi-venue order book viewer for several cryptocurrency exchanges and includes an order simulation tool to help traders visualize market impact.
 
-✨ Features
+Features
 ✅ Multi-Venue Orderbook Display:
 
 Displays real-time order books from three venues: OKX, Bybit, and Deribit.
